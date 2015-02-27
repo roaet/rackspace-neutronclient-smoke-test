@@ -21,6 +21,7 @@ state=sanity
 ret=0
 
 network_name="rs_nc_test_network"
+sg_name="rs_nc_test_sg"
 
 while true ; do
     case $state in
@@ -68,7 +69,14 @@ while true ; do
             state=$next_state
             ;;
         testing)
-            next_state=cleanup
+            state=cleanup
+            netlist=`neutron net-list 2> /dev/null`
+            if [ $? -ne 0 ]; then
+                echo -e "Network list failed.\n$netlist"
+                ret=1
+                continue
+            fi
+
             netmk=`neutron net-create $network_name 2> /dev/null`
             if [ $? -ne 0 ]; then
                 echo -e "Network create failed.\n$netmk"
@@ -85,6 +93,13 @@ while true ; do
             fi
             subid=`echo "$submk" | grep " id " | awk '{print $4}'`
 
+            sublist=`neutron subnet-list 2> /dev/null`
+            if [ $? -ne 0 ]; then
+                echo -e "Subnet list failed.\n$sublist"
+                ret=1
+                continue
+            fi
+
             portmk=`neutron port-create $network_name 2> /dev/null`
             if [ $? -ne 0 ]; then
                 echo -e "Port create failed.\n$portmk"
@@ -93,24 +108,85 @@ while true ; do
             fi
             portid=`echo "$portmk" | grep " id " | awk '{print $4}'`
 
-            state=$next_state
+            portlist=`neutron port-list 2> /dev/null`
+            if [ $? -ne 0 ]; then
+                echo -e "Port list failed.\n$portlist"
+                ret=1
+                continue
+            fi
+
+            sgmk=`neutron security-group-create $sg_name 2> /dev/null`
+            if [ $? -ne 0 ]; then
+                echo -e "Security group create failed.\n$sgmk"
+                ret=1
+                continue
+            fi
+            sgid=`echo "$sgmk" | grep " id " | awk '{print $4}'`
+
+            sglist=`neutron security-group-list 2> /dev/null`
+            if [ $? -ne 0 ]; then
+                echo -e "Security group list failed.\n$sglist"
+                ret=1
+                continue
+            fi
+
+            sgrmk=`neutron security-group-rule-create --direction ingress --ethertype ipv4 --protocol tcp --port-range-min 80 --port-range-max 80 $sg_name 2> /dev/null`
+            if [ $? -ne 0 ]; then
+                echo -e "Security group rule create failed.\n$sgrmk"
+                ret=1
+                continue
+            fi
+            sgrid=`echo "$sgrmk" | grep " id " | awk '{print $4}'`
+
+            sgrlist=`neutron security-group-rule-list 2> /dev/null`
+            if [ $? -ne 0 ]; then
+                echo -e "Security group rule list failed.\n$sglist"
+                ret=1
+                continue
+            fi
+
             ;;
         cleanup)
             next_state=exit
-            portdl=`neutron port-delete $portid 2> /dev/null`
-            if [ $? -ne 0 ]; then
-                echo -e "Port delete failed.\n$portdl"
-                ret=1
+            
+            if [ ! -z ${sgrid+x} ]; then
+                sgrdl=`neutron security-group-rule-delete $sgrid 2> /dev/null`
+                if [ $? -ne 0 ]; then
+                    echo -e "security group rule delete failed.\n$sgrdl"
+                    ret=1
+                fi
             fi
-            subdl=`neutron subnet-delete $subid 2> /dev/null`
-            if [ $? -ne 0 ]; then
-                echo -e "Subnet delete failed.\n$subdl"
-                ret=1
+
+            if [ ! -z ${sgid+x} ]; then
+                sgdl=`neutron security-group-delete $sgid 2> /dev/null`
+                if [ $? -ne 0 ]; then
+                    echo -e "security group delete failed.\n$sgdl"
+                    ret=1
+                fi
             fi
-            netdl=`neutron net-delete $netid 2> /dev/null`
-            if [ $? -ne 0 ]; then
-                echo -e "Network delete failed.\n$netdl"
-                ret=1
+
+            if [ ! -z ${portid+x} ]; then
+                portdl=`neutron port-delete $portid 2> /dev/null`
+                if [ $? -ne 0 ]; then
+                    echo -e "Port delete failed.\n$portdl"
+                    ret=1
+                fi
+            fi
+
+            if [ ! -z ${subid+x} ]; then
+                subdl=`neutron subnet-delete $subid 2> /dev/null`
+                if [ $? -ne 0 ]; then
+                    echo -e "Subnet delete failed.\n$subdl"
+                    ret=1
+                fi
+            fi
+
+            if [ ! -z ${netid+x} ]; then
+                netdl=`neutron net-delete $netid 2> /dev/null`
+                if [ $? -ne 0 ]; then
+                    echo -e "Network delete failed.\n$netdl"
+                    ret=1
+                fi
             fi
             state=$next_state
             ;;
